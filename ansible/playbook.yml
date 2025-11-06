@@ -1,0 +1,111 @@
+---
+- name: Install Docker on all instances
+  hosts: all
+  become: yes
+  tasks:
+    - name: Update apt package index
+      apt:
+        update_cache: yes
+
+    - name: Install Docker if not present
+      package:
+        name: docker.io
+        state: present
+
+    - name: Start Docker service
+      systemd:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Install python3-docker
+      apt:
+        name: python3-docker
+        state: present
+
+- name: Deploy PostgreSQL on database instance
+  hosts: database
+  become: yes
+  tasks:
+    - name: Run Postgres container
+      docker_container:
+        name: postgres
+        image: postgres:latest
+        ports:
+          - "5432:5432"
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        state: started
+
+- name: Deploy Redis and Worker on backend instance
+  hosts: backend
+  become: yes
+  tasks:
+    - name: Create backend network
+      docker_network:
+        name: backend-network
+        state: present
+
+    - name: Run Redis container
+      docker_container:
+        name: redis
+        image: redis:latest
+        networks:
+          - name: backend-network
+        ports:
+          - "6379:6379"
+        state: started
+
+    - name: Run Worker container
+      docker_container:
+        name: worker
+        image: diliviosantos/voting-app-worker:latest
+        networks:
+          - name: backend-network
+        env:
+          REDIS_HOST: redis   # Use container name instead of IP
+          REDIS_PORT: "6379"
+          DB_HOST: 10.0.5.181     # database private IP
+          DB_PORT: "5432"
+          DB_USERNAME: postgres
+          DB_PASSWORD: postgres
+          DB_NAME: postgres
+        state: started
+
+- name: Deploy Vote and Result on frontend instance
+  hosts: frontend
+  become: yes
+  tasks:
+    - name: Run Vote container
+      docker_container:
+        name: vote
+        image: diliviosantos/voting-app-vote:latest
+        env:
+          REDIS_HOST: 10.0.5.85   # backend Redis private IP
+          REDIS_PORT: "6379"
+        ports:
+          - "80:80"
+        state: started
+
+    - name: Run Result container
+      docker_container:
+        name: result
+        image: diliviosantos/voting-app-result:latest
+        env:
+          PG_HOST: 10.0.5.181     # database private IP
+          PG_PORT: "5432"
+          PG_USER: postgres
+          PG_PASSWORD: postgres
+          PG_DATABASE: postgres
+          PORT: "80"
+        ports:
+          - "81:80"
+        state: started
+
+
+
+
+
+
+
